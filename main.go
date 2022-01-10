@@ -40,7 +40,8 @@ func main() {
 		peers = append(peers, peerAddr)
 	}
 
-	s, _ := NewServer(fmt.Sprintf("0.0.0.0:%v", *listenPort), *procParallel, *maxInflight, *globalInflight)
+	m := &Miner{*slotMineProb, *mineSec, 1, make(chan int, 100)}
+	s, _ := NewServer(fmt.Sprintf("0.0.0.0:%v", *listenPort), *procParallel, *maxInflight, *globalInflight, m, *blockSize, *blockTime, *attacker)
 	log.Printf("dummy node started, connecting to outgoing peers %v\n", peers)
 
 	if *peerList != "" {
@@ -60,17 +61,6 @@ func main() {
 		for time.Now().Before(startTime) {
 		}
 	}
-
-	rnd := 1
-	ticker := time.NewTicker(*mineSec)
-	for {
-		select {
-		case <-ticker.C:
-			if rand.Float64() < *slotMineProb {
-				s.mineBlock(*blockTime, *blockSize, rnd, *attacker)
-			}
-			rnd += 1
-		}
-	}
+	m.Mine()
 }
 

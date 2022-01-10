@@ -37,9 +37,32 @@ type Server struct {
 	adoptedTip BlockMetadata
 
 	processorCh chan BlockMetadata
+
+	miner *Miner
+	blockSize int
+	blockProcCost time.Duration
+	attacker bool
 }
 
-func NewServer(addr string, ncores int, localCap int, globalCap int) (*Server, error) {
+func (s *Server) produceHonestBlocks() {
+	for r := range s.miner.tickets {
+		s.lock.Lock()
+		nb := BlockMetadata {
+			Timestamp: time.Now(),
+			ProcCost: s.blockProcCost,
+			Hash: rand.Int(),
+			Round: r,
+			Size: s.blockSize,
+			Height: s.adoptedTip.Height+1,
+			Parent: s.adoptedTip.Hash,
+			Invalid: false,
+		}
+		s.newValidatedBlock(nb)
+		s.lock.Unlock()
+	}
+}
+
+func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Miner, blockSize int, blockProcCost time.Duration, attacker bool) (*Server, error) {
 	s := &Server {
 		lock: &sync.Mutex{},
 		peerMsg: make(chan peerMessage, 1000),
@@ -49,6 +72,10 @@ func NewServer(addr string, ncores int, localCap int, globalCap int) (*Server, e
 		inflight: make(map[int]struct{}),
 		downloaded: make(map[int]struct{}),
 		processorCh: make(chan BlockMetadata, 512),
+		miner: miner,
+		blockSize: blockSize,
+		blockProcCost: blockProcCost,
+		attacker: attacker,
 	}
 	// genesis block
 	s.validatedBlocks[0] = BlockMetadata{}
@@ -61,6 +88,9 @@ func NewServer(addr string, ncores int, localCap int, globalCap int) (*Server, e
 	}()
 	s.processDownloadedBlocks(ncores)
 	go s.processMessages()
+	if !attacker {
+		go s.produceHonestBlocks()
+	}
 	return s, nil
 }
 
@@ -177,23 +207,6 @@ func (s *Server) tryRequestNextBlock() {
 			s.peers[bestPeer].inflight[toRequest] = struct{}{}
 		}
 	}
-}
-
-func (s *Server) mineBlock(cost time.Duration, size int, round int, invalid bool) BlockMetadata {
-	s.lock.Lock()
-	nb := BlockMetadata {
-		Timestamp: time.Now(),
-		ProcCost: cost,
-		Hash: rand.Int(),
-		Round: round,
-		Size: size,
-		Height: s.adoptedTip.Height+1,
-		Parent: s.adoptedTip.Hash,
-		Invalid: invalid,
-	}
-	s.newValidatedBlock(nb)
-	s.lock.Unlock()
-	return nb
 }
 
 func (s *Server) connect(addr string) error {

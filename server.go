@@ -20,6 +20,7 @@ type peerHandle struct {
 	inflight map[int]struct{}
 	hpCh chan Message
 	lpCh chan Message
+	downloadPtr int
 }
 
 type Server struct {
@@ -32,6 +33,7 @@ type Server struct {
 
 	validatedBlocks map[int]BlockMetadata	// downloaded and validated blocks
 	inflight map[int]struct{}
+	downloaded map[int]struct{}
 	adoptedTip BlockMetadata
 
 	processorCh chan BlockMetadata
@@ -45,10 +47,12 @@ func NewServer(addr string, ncores int, localCap int, globalCap int) (*Server, e
 		localCap: localCap,
 		validatedBlocks: make(map[int]BlockMetadata),
 		inflight: make(map[int]struct{}),
+		downloaded: make(map[int]struct{}),
 		processorCh: make(chan BlockMetadata, 512),
 	}
 	// genesis block
 	s.validatedBlocks[0] = BlockMetadata{}
+	s.downloaded[0] = struct{}{}
 	go func() {
 		err := s.listenForPeers(addr)
 		if err != nil {
@@ -73,6 +77,7 @@ func (s *Server) processMessages() {
 			s.lock.Lock()
 			delete(s.peers[from].inflight, m.Hash)
 			delete(s.inflight, m.Hash)
+			s.downloaded[m.Hash] = struct{}{}
 			s.lock.Unlock()
 			s.processorCh <- m.BlockMetadata
 		case *ChainUpdate:
@@ -83,6 +88,9 @@ func (s *Server) processMessages() {
 					log.Fatalln("rolling back from incorrect tip")
 				}
 				s.peers[from].chain = s.peers[from].chain[0:lastIdx]
+				if s.peers[from].downloadPtr > lastIdx {
+					s.peers[from].downloadPtr = lastIdx
+				}
 			}
 			// added blocks are ordered from high to low, so we need to
 			// iterate in reverse order
@@ -117,21 +125,6 @@ func (s *Server) tryRequestNextBlock() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	// compute the potential blocks to download, one for each chain
-	peerPtr := make([]int, len(s.peers))
-	for i := range s.peers {
-		ptr := 0
-		for ptr < len(s.peers[i].chain) {
-			_, validated := s.validatedBlocks[s.peers[i].chain[ptr].Hash]
-			_, inflight := s.inflight[s.peers[i].chain[ptr].Hash]
-			if (!validated) && (!inflight) {
-				break
-			} else {
-				ptr += 1
-			}
-		}
-		peerPtr[i] = ptr
-	}
 	// request blocks until there is no peer to download from, or we have
 	// filled the global cap
 	tried := make(map[int]struct{})
@@ -149,8 +142,20 @@ func (s *Server) tryRequestNextBlock() {
 				tried[pidx] = struct{}{}
 				continue
 			}
+			// advance the download ptr
+			ptr := s.peers[pidx].downloadPtr
+			for ptr < len(s.peers[pidx].chain) {
+				_, downloaded := s.downloaded[s.peers[pidx].chain[ptr].Hash]
+				_, inflight := s.inflight[s.peers[pidx].chain[ptr].Hash]
+				if (!downloaded) && (!inflight) {
+					break
+				} else {
+					ptr += 1
+				}
+			}
+			s.peers[pidx].downloadPtr = ptr
 			// do not request if the pointer is already out of scope
-			if len(s.peers[pidx].chain) <= peerPtr[pidx] {
+			if len(s.peers[pidx].chain) <= s.peers[pidx].downloadPtr {
 				tried[pidx] = struct{}{}
 				continue
 			}
@@ -163,8 +168,8 @@ func (s *Server) tryRequestNextBlock() {
 		if bestPeer == -1 {
 			break
 		} else {
-			toRequest := s.peers[bestPeer].chain[peerPtr[bestPeer]].Hash
-			peerPtr[bestPeer] += 1
+			toRequest := s.peers[bestPeer].chain[s.peers[bestPeer].downloadPtr].Hash
+			s.peers[bestPeer].downloadPtr += 1
 			log.Printf("requesting %v\n", toRequest)
 			msg := &BlockRequest{toRequest}
 			s.peers[bestPeer].hpCh <- msg

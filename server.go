@@ -123,6 +123,10 @@ func (s *Server) tryProduceAttackBlocks() {
 		s.validatedBlocks[nb.Hash] = nb
 	}
 	added, removed := s.adoptBlock(fakeTip)
+	// memory optimization: remove the old blocks from the map
+	for _, b := range removed {
+		delete(s.validatedBlocks, b.Hash)
+	}
 	msg := &ChainUpdate {
 		added,
 		removed,
@@ -166,7 +170,7 @@ func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Mine
 }
 
 type BlockRequest struct {
-	Hash int
+	Header BlockMetadata
 }
 
 func (s *Server) processMessages() {
@@ -207,9 +211,17 @@ func (s *Server) processMessages() {
 			log.Printf("peer %v chain switch to %v at height %v\n", from, newTip.Hash, newTip.Height)
 		case *BlockRequest:
 			out := &Block{}
-			s.lock.Lock()
-			out.BlockMetadata = s.validatedBlocks[m.Hash]
-			s.lock.Unlock()
+			if !s.attacker {
+				s.lock.Lock()
+				_, there := s.validatedBlocks[m.Header.Hash]
+				if !there {
+					panic("missing requested block")
+				}
+				out.BlockMetadata = s.validatedBlocks[m.Header.Hash]
+				s.lock.Unlock()
+			} else {
+				out.BlockMetadata = m.Header
+			}
 			out.Data = make([]byte, out.Size)
 			rand.Read(out.Data)
 			s.lock.Lock()
@@ -273,13 +285,13 @@ func (s *Server) tryRequestNextBlock() {
 		if bestPeer == -1 {
 			break
 		} else {
-			toRequest := s.peers[bestPeer].chain[s.peers[bestPeer].downloadPtr].Hash
+			toRequest := s.peers[bestPeer].chain[s.peers[bestPeer].downloadPtr]
 			s.peers[bestPeer].downloadPtr += 1
-			log.Printf("requesting %v\n", toRequest)
+			log.Printf("requesting %v\n", toRequest.Hash)
 			msg := &BlockRequest{toRequest}
 			s.peers[bestPeer].hpCh <- msg
-			s.inflight[toRequest] = struct{}{}
-			s.peers[bestPeer].inflight[toRequest] = struct{}{}
+			s.inflight[toRequest.Hash] = struct{}{}
+			s.peers[bestPeer].inflight[toRequest.Hash] = struct{}{}
 		}
 	}
 }

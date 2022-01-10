@@ -57,16 +57,6 @@ func NewServer(addr string, ncores int, localCap int, globalCap int) (*Server, e
 	}()
 	s.processDownloadedBlocks(ncores)
 	go s.processMessages()
-
-	go func() {
-		ticker := time.NewTicker(10 * time.Millisecond)
-		for {
-			select {
-			case <-ticker.C:
-				s.tryRequestNextBlock()
-			}
-		}
-	}()
 	return s, nil
 }
 
@@ -119,6 +109,7 @@ func (s *Server) processMessages() {
 		default:
 			panic("unhandled message")
 		}
+		s.tryRequestNextBlock()
 	}
 }
 

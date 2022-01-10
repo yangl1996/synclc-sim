@@ -42,6 +42,7 @@ type Server struct {
 	blockSize int
 	blockProcCost time.Duration
 	attacker bool
+	tickets []int
 }
 
 func (s *Server) produceHonestBlocks() {
@@ -60,6 +61,74 @@ func (s *Server) produceHonestBlocks() {
 		s.newValidatedBlock(nb)
 		s.lock.Unlock()
 	}
+}
+
+func (s *Server) collectAttackTickets() {
+	for r := range s.miner.tickets {
+		s.lock.Lock()
+		s.tickets = append(s.tickets, r)
+		s.lock.Unlock()
+		s.tryProduceAttackBlocks()
+	}
+}
+
+func (s *Server) tryProduceAttackBlocks() {
+	s.lock.Lock()
+	peerTip := s.peers[0].chain[len(s.peers[0].chain)-1]
+	// We can attack when we have 1 ticket after peer's adopted chain, by using the
+	// ticket to build invalid blocks off peerTip. Note that this does not guarantee
+	// a successful attack, because the peer might hear an honest announcement of
+	// a longer chain than us. To maximize our success probability, we should use all
+	// available tickets to build spam chains.
+
+	// collect tickets valid for the attack
+	attackTickets := []int{}
+	ptr := len(s.tickets)-1
+	for ptr >= 0 && s.tickets[ptr] > peerTip.Round {
+		attackTickets = append(attackTickets, s.tickets[ptr])
+		ptr -= 1
+	}
+	s.lock.Unlock()
+	if len(attackTickets) == 0 {
+		// no ticket for attacking
+		return
+	}
+	s.lock.Lock()
+	fakeTip := peerTip
+	log.Printf("mining spam chain of size %v on top of %v\n", len(attackTickets), fakeTip.Hash)
+	// make sure we have all peer's block in the validated set otherwise we will
+	// make mistake when computing chain diff
+	ptr = len(s.peers[0].chain)-1
+	for ptr >= 0 {
+		if _, there := s.validatedBlocks[s.peers[0].chain[ptr].Hash]; there {
+			break
+		} else {
+			s.validatedBlocks[s.peers[0].chain[ptr].Hash] = s.peers[0].chain[ptr]
+		}
+		ptr -= 1
+	}
+	for tidx := len(attackTickets)-1; tidx >= 0; tidx-- {
+		nb := BlockMetadata {
+			Timestamp: time.Now(),
+			ProcCost: s.blockProcCost,
+			Hash: rand.Int(),
+			Round: attackTickets[tidx],
+			Size: s.blockSize,
+			Height: fakeTip.Height+1,
+			Parent: fakeTip.Hash,
+			Invalid: true,
+		}
+		fakeTip = nb
+		// insert the spam block
+		s.validatedBlocks[nb.Hash] = nb
+	}
+	added, removed := s.adoptBlock(fakeTip)
+	msg := &ChainUpdate {
+		added,
+		removed,
+	}
+	s.peers[0].hpCh <- msg
+	s.lock.Unlock()
 }
 
 func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Miner, blockSize int, blockProcCost time.Duration, attacker bool) (*Server, error) {
@@ -90,6 +159,8 @@ func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Mine
 	go s.processMessages()
 	if !attacker {
 		go s.produceHonestBlocks()
+	} else {
+		go s.collectAttackTickets()
 	}
 	return s, nil
 }
@@ -127,7 +198,7 @@ func (s *Server) processMessages() {
 			for aidx := len(m.Added)-1; aidx >= 0; aidx-- {
 				lastIdx := len(s.peers[from].chain)-1
 				if s.peers[from].chain[lastIdx].Hash != m.Added[aidx].Parent {
-					log.Fatalln("adding block to incorrect tip")
+					log.Fatalf("peer %v adding block to incorrect tip %v, should be %v\n", from, s.peers[from].chain[lastIdx].Hash, m.Added[aidx].Parent)
 				}
 				s.peers[from].chain = append(s.peers[from].chain, m.Added[aidx])
 			}
@@ -147,7 +218,11 @@ func (s *Server) processMessages() {
 		default:
 			panic("unhandled message")
 		}
-		s.tryRequestNextBlock()
+		if !s.attacker {
+			s.tryRequestNextBlock()
+		} else {
+			s.tryProduceAttackBlocks()
+		}
 	}
 }
 
@@ -337,6 +412,9 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 			if parent.Height != block.Height -1 {
 				panic("block height not incremental")
 			}
+			if parent.Round >= block.Round {
+				panic("block round not incremental")
+			}
 			s.newValidatedBlock(block)
 			s.lock.Unlock()
 		}
@@ -344,6 +422,33 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 	for i := 0; i < ncores; i++ {
 		go serve()
 	}
+}
+
+func (s *Server) adoptBlock(block BlockMetadata) (added, removed []BlockMetadata) {
+	tip := s.adoptedTip
+	// figure out the diff
+	oldT := tip
+	newT := block
+	for oldT.Height != newT.Height {
+		if oldT.Height > newT.Height {
+			removed = append(removed, oldT)
+			oldT = s.validatedBlocks[oldT.Parent]
+		} else {
+			added = append(added, newT)
+			newT = s.validatedBlocks[newT.Parent]
+		}
+	}
+	for oldT.Hash != newT.Hash {
+		removed = append(removed, oldT)
+		added = append(added, newT)
+		if oldT.Height == 1 {
+			break
+		}
+		oldT = s.validatedBlocks[oldT.Parent]
+		newT = s.validatedBlocks[newT.Parent]
+	}
+	s.adoptedTip = block
+	return added, removed
 }
 
 func (s *Server) newValidatedBlock(block BlockMetadata) {
@@ -355,41 +460,18 @@ func (s *Server) newValidatedBlock(block BlockMetadata) {
 	}
 	s.validatedBlocks[block.Hash] = block
 	// compute chain switch
-	var added []BlockMetadata
-	var removed []BlockMetadata
 	tip := s.adoptedTip
 	if tip.Height < block.Height || (tip.Height == block.Height && tip.Hash > block.Hash) {
-		// figure out the diff
-		oldT := tip
-		newT := block
-		for oldT.Height != newT.Height {
-			if oldT.Height > newT.Height {
-				removed = append(removed, oldT)
-				oldT = s.validatedBlocks[oldT.Parent]
-			} else {
-				added = append(added, newT)
-				newT = s.validatedBlocks[newT.Parent]
+		added, removed := s.adoptBlock(block)
+		if len(removed) != 0 || len(added) != 0 {
+			log.Printf("tip switched to block %v height %v at time %v rolling back %v forward %v \n", block.Hash, block.Height, time.Now().UnixMicro(), len(removed), len(added))
+			for pidx := range s.peers {
+				msg := &ChainUpdate {
+					added,
+					removed,
+				}
+				s.peers[pidx].hpCh <- msg
 			}
-		}
-		for oldT.Hash != newT.Hash {
-			removed = append(removed, oldT)
-			added = append(added, newT)
-			if oldT.Height == 1 {
-				break
-			}
-			oldT = s.validatedBlocks[oldT.Parent]
-			newT = s.validatedBlocks[newT.Parent]
-		}
-		s.adoptedTip = block
-	}
-	if len(removed) != 0 || len(added) != 0 {
-		log.Printf("tip switched to block %v height %v at time %v rolling back %v forward %v \n", block.Hash, block.Height, time.Now().UnixMicro(), len(removed), len(added))
-		for pidx := range s.peers {
-			msg := &ChainUpdate {
-				added,
-				removed,
-			}
-			s.peers[pidx].hpCh <- msg
 		}
 	}
 }

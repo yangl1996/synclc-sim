@@ -95,7 +95,7 @@ func (s *Server) tryProduceAttackBlocks() {
 	}
 	s.lock.Lock()
 	fakeTip := peerTip
-	log.Printf("mining spam chain of size %v on top of %v\n", len(attackTickets), fakeTip.Hash)
+	log.Printf("mining spam chain of on top of %v (height %v round %v) to height %v round %v\n", fakeTip.Hash, fakeTip.Height, fakeTip.Round, fakeTip.Height+len(attackTickets), attackTickets[0])
 	// make sure we have all peer's block in the validated set otherwise we will
 	// make mistake when computing chain diff
 	ptr = len(s.peers[0].chain)-1

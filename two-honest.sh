@@ -9,5 +9,6 @@ startTime=`expr $now + 7`
 
 #two victims
 mm-delay 50 mm-link fast.mahi fast.mahi --uplink-queue=pie --uplink-queue-args="qdelay_ref=20, packets=200, max_burst=150" --downlink-queue=pie --downlink-queue-args="qdelay_ref=20, packets=200, max_burst=150" -- ./synclc-sim -local 1 -global 1 -lottery 0.1 -parallel 4 -peers 172.16.232.130:9002,172.16.232.130:10000 -port 9000 -start $startTime &> victim1.txt &
+
 mm-delay 50 mm-link fast.mahi fast.mahi --uplink-queue=pie --uplink-queue-args="qdelay_ref=20, packets=200, max_burst=150" --downlink-queue=pie --downlink-queue-args="qdelay_ref=20, packets=200, max_burst=150" -- ./synclc-sim -local 1 -global 1 -lottery 0.1 -parallel 4 -peers 172.16.232.130:9002,172.16.232.130:10000 -port 9001 -start $startTime &> victim2.txt &
 

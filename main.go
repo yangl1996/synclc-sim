@@ -53,7 +53,6 @@ func main() {
 	log.Printf("dummy node started, connecting to outgoing peers %v\n", peers)
 
 	if *peerList != "" {
-		time.Sleep(time.Duration(1) * time.Second)
 		log.Println("connecting to outgoing peers")
 		outgoingWg := &sync.WaitGroup{}
 		outgoingWg.Add(len(peers))

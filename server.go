@@ -432,6 +432,7 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 				log.Printf("buffering block %v whose parent %v has not been validated\n", block.Hash, block.Parent)
 				s.blockBuffer[block.Parent] = block
 				s.lock.Unlock()
+				continue
 			}
 			if parent.Height != block.Height -1 {
 				log.Fatalf("block height not incremental (from %v to %v)\n", parent.Height, block.Height)

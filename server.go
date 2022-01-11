@@ -305,11 +305,11 @@ func (s *Server) tryRequestNextBlock() {
 }
 
 func (s *Server) connect(addr string) error {
-	log.Printf("connecting to %s\n", addr)
 	backoff := 100	// ms
 	var conn net.Conn
 	var err error
 	for {
+		log.Printf("dialing %s\n", addr)
 		conn, err = net.Dial("tcp", addr)
 		if err != nil {
 			time.Sleep(time.Duration(backoff) * time.Millisecond)
@@ -423,7 +423,7 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 			s.lock.Lock()
 			_, parentDownloaded := s.downloaded[block.Parent]
 			_, parentRequested := s.inflight[block.Parent]
-			if (!parentDownloaded) || (!parentRequested) {
+			if (!parentDownloaded) && (!parentRequested) {
 				log.Fatalf("downloaded block %v whose parent %v has not been downloaded or requested\n", block.Hash, block.Parent)
 			}
 			parent, parentExists := s.validatedBlocks[block.Parent]

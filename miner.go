@@ -1,11 +1,12 @@
 package main
 
 import (
-	"math/rand"
 	"time"
+	"math/rand"
 )
 
 type Miner struct {
+	rng *rand.Rand
 	succProb float64	// probability to win a ticket in a round
 	intv time.Duration
 	currRound int
@@ -20,7 +21,7 @@ func (m *Miner) Mine() {
 	for {
 		select {
 		case <- ticker.C:
-			if rand.Float64() < m.succProb {
+			if m.rng.Float64() < m.succProb {
 				m.tickets <- m.currRound
 			}
 			m.currRound += 1

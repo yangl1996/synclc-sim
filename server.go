@@ -67,14 +67,17 @@ func (s *Server) collectAttackTickets() {
 	for r := range s.miner.tickets {
 		s.lock.Lock()
 		s.tickets = append(s.tickets, r)
+		nPeers := len(s.peers)
 		s.lock.Unlock()
-		s.tryProduceAttackBlocks()
+		for i := 0; i < nPeers; i++ {
+			s.tryProduceAttackBlocks(i)
+		}
 	}
 }
 
-func (s *Server) tryProduceAttackBlocks() {
+func (s *Server) tryProduceAttackBlocks(forPeer int) {
 	s.lock.Lock()
-	peerTip := s.peers[0].chain[len(s.peers[0].chain)-1]
+	peerTip := s.peers[forPeer].chain[len(s.peers[forPeer].chain)-1]
 	// We can attack when we have 1 ticket after peer's adopted chain, by using the
 	// ticket to build invalid blocks off peerTip. Note that this does not guarantee
 	// a successful attack, because the peer might hear an honest announcement of
@@ -98,12 +101,12 @@ func (s *Server) tryProduceAttackBlocks() {
 	log.Printf("mining spam chain of on top of %v (height %v round %v) to height %v round %v\n", fakeTip.Hash, fakeTip.Height, fakeTip.Round, fakeTip.Height+len(attackTickets), attackTickets[0])
 	// make sure we have all peer's block in the validated set otherwise we will
 	// make mistake when computing chain diff
-	ptr = len(s.peers[0].chain)-1
+	ptr = len(s.peers[forPeer].chain)-1
 	for ptr >= 0 {
-		if _, there := s.validatedBlocks[s.peers[0].chain[ptr].Hash]; there {
+		if _, there := s.validatedBlocks[s.peers[forPeer].chain[ptr].Hash]; there {
 			break
 		} else {
-			s.validatedBlocks[s.peers[0].chain[ptr].Hash] = s.peers[0].chain[ptr]
+			s.validatedBlocks[s.peers[forPeer].chain[ptr].Hash] = s.peers[forPeer].chain[ptr]
 		}
 		ptr -= 1
 	}
@@ -131,7 +134,7 @@ func (s *Server) tryProduceAttackBlocks() {
 		added,
 		removed,
 	}
-	s.peers[0].hpCh <- msg
+	s.peers[forPeer].hpCh <- msg
 	s.lock.Unlock()
 }
 
@@ -233,7 +236,7 @@ func (s *Server) processMessages() {
 		if !s.attacker {
 			s.tryRequestNextBlock()
 		} else {
-			s.tryProduceAttackBlocks()
+			s.tryProduceAttackBlocks(from)
 		}
 	}
 }
@@ -297,6 +300,7 @@ func (s *Server) tryRequestNextBlock() {
 }
 
 func (s *Server) connect(addr string) error {
+	log.Printf("connecting to %s\n", addr)
 	backoff := 100	// ms
 	var conn net.Conn
 	var err error

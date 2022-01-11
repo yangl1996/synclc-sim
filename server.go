@@ -31,6 +31,7 @@ type Server struct {
 	globalCap int
 	localCap int
 
+	blockBuffer map[int]BlockMetadata
 	validatedBlocks map[int]BlockMetadata	// downloaded and validated blocks
 	inflight map[int]struct{}
 	downloaded map[int]struct{}
@@ -222,7 +223,7 @@ func (s *Server) processMessages() {
 				s.lock.Lock()
 				_, there := s.validatedBlocks[m.Header.Hash]
 				if !there {
-					panic("missing requested block")
+					log.Fatalf("requested block body %v has not been validated\n", m.Header.Hash)
 				}
 				out.BlockMetadata = s.validatedBlocks[m.Header.Hash]
 				s.lock.Unlock()
@@ -419,22 +420,37 @@ func (s *Server) listenForPeers(addr string) error {
 func (s *Server) processDownloadedBlocks(ncores int) {
 	serve := func() {
 		for block := range s.processorCh {
+			s.lock.Lock()
+			_, parentDownloaded := s.downloaded[block.Parent]
+			_, parentRequested := s.inflight[block.Parent]
+			if (!parentDownloaded) || (!parentRequested) {
+				log.Fatalf("downloaded block %v whose parent %v has not been downloaded or requested\n", block.Hash, block.Parent)
+			}
+			parent, parentExists := s.validatedBlocks[block.Parent]
+			if !parentExists {
+				log.Printf("buffering block %v whose parent %v has not been validated\n", block.Hash, block.Parent)
+				s.blockBuffer[block.Parent] = block
+				s.lock.Unlock()
+			}
+			if parent.Height != block.Height -1 {
+				log.Fatalf("block height not incremental (from %v to %v)\n", parent.Height, block.Height)
+			}
+			if parent.Round >= block.Round {
+				log.Fatalf("block round not incremental (from %v to %v)\n", parent.Round, block.Round)
+			}
+			s.lock.Unlock()
+
 			block.process()
 			if block.Invalid {
 				continue
 			}
+
 			s.lock.Lock()
-			parent, parentExists := s.validatedBlocks[block.Parent]
-			if !parentExists {
-				panic("downloaded a block whose parent has not been downloaded")
-			}
-			if parent.Height != block.Height -1 {
-				panic("block height not incremental")
-			}
-			if parent.Round >= block.Round {
-				panic("block round not incremental")
-			}
 			s.newValidatedBlock(block)
+			if buffered, exists := s.blockBuffer[block.Hash]; exists {
+				delete(s.blockBuffer, block.Hash)
+				s.processorCh <- buffered
+			}
 			s.lock.Unlock()
 		}
 	}

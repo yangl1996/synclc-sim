@@ -42,6 +42,7 @@ type Server struct {
 	blockSize int
 	blockProcCost time.Duration
 	attacker bool
+	fakeTip []BlockMetadata
 	tickets []int
 }
 
@@ -97,8 +98,8 @@ func (s *Server) tryProduceAttackBlocks(forPeer int) {
 		return
 	}
 	s.lock.Lock()
-	fakeTip := peerTip
-	log.Printf("mining spam chain of on top of %v (height %v round %v) to height %v round %v\n", fakeTip.Hash, fakeTip.Height, fakeTip.Round, fakeTip.Height+len(attackTickets), attackTickets[0])
+	targetTip := peerTip
+	log.Printf("mining spam chain of on top of %v (height %v round %v) to height %v round %v\n", targetTip.Hash, targetTip.Height, targetTip.Round, targetTip.Height+len(attackTickets), attackTickets[0])
 	// make sure we have all peer's block in the validated set otherwise we will
 	// make mistake when computing chain diff
 	ptr = len(s.peers[forPeer].chain)-1
@@ -117,15 +118,16 @@ func (s *Server) tryProduceAttackBlocks(forPeer int) {
 			Hash: rand.Int(),
 			Round: attackTickets[tidx],
 			Size: s.blockSize,
-			Height: fakeTip.Height+1,
-			Parent: fakeTip.Hash,
+			Height: targetTip.Height+1,
+			Parent: targetTip.Hash,
 			Invalid: true,
 		}
-		fakeTip = nb
+		targetTip = nb
 		// insert the spam block
 		s.validatedBlocks[nb.Hash] = nb
 	}
-	added, removed := s.adoptBlock(fakeTip)
+	added, removed := s.computeDiff(s.fakeTip[forPeer], targetTip)
+	s.fakeTip[forPeer] = targetTip
 	// memory optimization: remove the old blocks from the map
 	for _, b := range removed {
 		delete(s.validatedBlocks, b.Hash)
@@ -335,6 +337,7 @@ func (s *Server) connect(addr string) error {
 		lpCh: make(chan Message, 1000),
 	}
 	s.peers = append(s.peers, handle)
+	s.fakeTip = append(s.fakeTip, BlockMetadata{})
 	peer := &peer {
 		index: idx,
 		hpConn: &peerConn {
@@ -388,6 +391,7 @@ func (s *Server) listenForPeers(addr string) error {
 			hpCh: make(chan Message, 1000),
 			lpCh: make(chan Message, 1000),
 		}
+		s.fakeTip = append(s.fakeTip, BlockMetadata{})
 		s.peers = append(s.peers, handle)
 		peer := &peer {
 			index: idx,
@@ -437,11 +441,11 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 	}
 }
 
-func (s *Server) adoptBlock(block BlockMetadata) (added, removed []BlockMetadata) {
-	tip := s.adoptedTip
+func (s *Server) computeDiff(from, to BlockMetadata) (added, removed []BlockMetadata) {
+	tip := from
 	// figure out the diff
 	oldT := tip
-	newT := block
+	newT := to 
 	for oldT.Height != newT.Height {
 		if oldT.Height > newT.Height {
 			removed = append(removed, oldT)
@@ -460,7 +464,6 @@ func (s *Server) adoptBlock(block BlockMetadata) (added, removed []BlockMetadata
 		oldT = s.validatedBlocks[oldT.Parent]
 		newT = s.validatedBlocks[newT.Parent]
 	}
-	s.adoptedTip = block
 	return added, removed
 }
 
@@ -475,7 +478,8 @@ func (s *Server) newValidatedBlock(block BlockMetadata) {
 	// compute chain switch
 	tip := s.adoptedTip
 	if tip.Height < block.Height || (tip.Height == block.Height && tip.Hash > block.Hash) {
-		added, removed := s.adoptBlock(block)
+		added, removed := s.computeDiff(tip, block)
+		s.adoptedTip = block
 		if len(removed) != 0 || len(added) != 0 {
 			log.Printf("tip switched to block %v height %v at time %v rolling back %v forward %v \n", block.Hash, block.Height, time.Now().UnixMicro(), len(removed), len(added))
 			for pidx := range s.peers {

@@ -130,7 +130,9 @@ func (s *Server) tryProduceAttackBlocks(forPeer int) {
 	s.fakeTip[forPeer] = targetTip
 	// memory optimization: remove the old blocks from the map
 	for _, b := range removed {
-		delete(s.validatedBlocks, b.Hash)
+		if b.Invalid {
+			delete(s.validatedBlocks, b.Hash)
+		}
 	}
 	msg := &ChainUpdate {
 		added,

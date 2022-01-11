@@ -24,7 +24,7 @@ func main() {
 	randSeed := flag.Int64("seed", 0, "random number generator seed")
 	startUnix := flag.Int64("start", 0, "unix timestamp for start time, 0 for now")
 	mineSec := flag.Duration("ri", time.Duration(1) * time.Second, "round interval")
-	blockSize := flag.Int("size", 1000000, "block size in bytes")
+	blockSize := flag.Int("size", 100000, "block size in bytes")
 	blockTime := flag.Duration("proc", time.Duration(0) * time.Second, "block processing time")
 	procParallel := flag.Int("parallel", 1, "number of workers to start")
 	slotMineProb := flag.Float64("lottery", 0.3, "prob to mine a block in a round")

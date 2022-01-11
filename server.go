@@ -297,16 +297,13 @@ func (s *Server) tryRequestNextBlock() {
 }
 
 func (s *Server) connect(addr string) error {
-	backoff := 200	// ms
+	backoff := 100	// ms
 	var conn net.Conn
 	var err error
 	for {
 		conn, err = net.Dial("tcp", addr)
 		if err != nil {
 			time.Sleep(time.Duration(backoff) * time.Millisecond)
-			if backoff < 1000 {
-				backoff *= 2
-			}
 		} else {
 			break
 		}

@@ -21,6 +21,15 @@ type peerHandle struct {
 	hpCh chan Message
 	lpCh chan Message
 	downloadPtr int
+
+	// the following fields are only used by the attacker
+	fakeTip BlockMetadata // our tip as believed by the victim
+	// tracks the attackable tickets
+	// these fields are not used for now; they are intended to track
+	// the best valid block as the base for the attack; we want to maximize
+	// the achievable height of equivocating chains
+	bestAttackFirstTicketIndex int
+	bestAttackTargetTip BlockMetadata
 }
 
 type Server struct {
@@ -42,8 +51,9 @@ type Server struct {
 	miner *Miner
 	blockSize int
 	blockProcCost time.Duration
+
+	// the following fields are only used by the attacker
 	attacker bool
-	fakeTip []BlockMetadata
 	tickets []int
 }
 
@@ -145,8 +155,8 @@ func (s *Server) tryProduceAttackBlocks(forPeer int) {
 		// insert the spam block
 		s.validatedBlocks[nb.Hash] = nb
 	}
-	added, removed := s.computeDiff(s.fakeTip[forPeer], targetTip)
-	s.fakeTip[forPeer] = targetTip
+	added, removed := s.computeDiff(s.peers[forPeer].fakeTip, targetTip)
+	s.peers[forPeer].fakeTip = targetTip
 	// memory optimization: remove the old blocks from the map
 	for _, b := range removed {
 		if b.Invalid {
@@ -359,7 +369,6 @@ func (s *Server) connect(addr string) error {
 		lpCh: make(chan Message, 1000),
 	}
 	s.peers = append(s.peers, handle)
-	s.fakeTip = append(s.fakeTip, BlockMetadata{})
 	peer := &peer {
 		index: idx,
 		hpConn: &peerConn {
@@ -413,7 +422,6 @@ func (s *Server) listenForPeers(addr string) error {
 			hpCh: make(chan Message, 1000),
 			lpCh: make(chan Message, 1000),
 		}
-		s.fakeTip = append(s.fakeTip, BlockMetadata{})
 		s.peers = append(s.peers, handle)
 		peer := &peer {
 			index: idx,

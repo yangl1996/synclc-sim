@@ -79,31 +79,49 @@ func (s *Server) collectAttackTickets() {
 
 func (s *Server) tryProduceAttackBlocks(forPeer int) {
 	s.lock.Lock()
-	peerTip := s.peers[forPeer].chain[len(s.peers[forPeer].chain)-1]
-	// We can attack when we have 1 ticket after peer's adopted chain, by using the
-	// ticket to build invalid blocks off peerTip. Note that this does not guarantee
-	// a successful attack, because the peer might hear an honest announcement of
-	// a longer chain than us. To maximize our success probability, we should use all
-	// available tickets to build spam chains.
+
+	var targetTip BlockMetadata
+
+	// We can attack when we have a longer chain than peer's adopted chain.
+	// Search from peer's adopted tip backwards to find the longest chain
+	// we can build, given that round numbers should be strictly increasing.
 
 	// collect tickets valid for the attack
 	attackTickets := []int{}
-	ptr := len(s.tickets)-1
-	for ptr >= 0 && s.tickets[ptr] > peerTip.Round {
-		attackTickets = append(attackTickets, s.tickets[ptr])
-		ptr -= 1
+	ticketPtr := len(s.tickets)-1	// the next ticket to consider
+	tipPtr := len(s.peers[forPeer].chain)-1	// the next tip index to consider
+	victimHeight := s.peers[forPeer].chain[tipPtr].Height
+
+	// search for at most 30 blocks back
+	searched := 0
+	bestHeightDiff := 0
+	bestTicketCount := 0
+	for tipPtr >= 0 && searched < 30 {
+		// collect more tickets valid for this tipPtr
+		for ticketPtr >= 0 && s.tickets[ticketPtr] > s.peers[forPeer].chain[tipPtr].Round {
+			attackTickets = append(attackTickets, s.tickets[ticketPtr])
+			ticketPtr -= 1
+		}
+		ourHeight := s.peers[forPeer].chain[tipPtr].Height + len(attackTickets)
+		if ourHeight - victimHeight > bestHeightDiff {
+			bestHeightDiff = ourHeight - victimHeight
+			bestTicketCount = len(attackTickets)
+			targetTip = s.peers[forPeer].chain[tipPtr]
+		}
+		tipPtr -= 1
+		searched += 1
 	}
+
 	s.lock.Unlock()
-	if len(attackTickets) == 0 {
+	if bestHeightDiff == 0 {
 		// no ticket for attacking
 		return
 	}
 	s.lock.Lock()
-	targetTip := peerTip
-	log.Printf("mining spam chain of on top of %v (height %v round %v) to height %v round %v\n", targetTip.Hash, targetTip.Height, targetTip.Round, targetTip.Height+len(attackTickets), attackTickets[0])
+	log.Printf("mining spam chain on top of %v (height %v round %v) to height %v round %v\n", targetTip.Hash, targetTip.Height, targetTip.Round, targetTip.Height+bestTicketCount, attackTickets[0])
 	// make sure we have all peer's block in the validated set otherwise we will
 	// make mistake when computing chain diff
-	ptr = len(s.peers[forPeer].chain)-1
+	ptr := len(s.peers[forPeer].chain)-1
 	for ptr >= 0 {
 		if _, there := s.validatedBlocks[s.peers[forPeer].chain[ptr].Hash]; there {
 			break
@@ -112,7 +130,7 @@ func (s *Server) tryProduceAttackBlocks(forPeer int) {
 		}
 		ptr -= 1
 	}
-	for tidx := len(attackTickets)-1; tidx >= 0; tidx-- {
+	for tidx := bestTicketCount-1; tidx >= 0; tidx-- {
 		nb := BlockMetadata {
 			Timestamp: time.Now(),
 			ProcCost: s.blockProcCost,

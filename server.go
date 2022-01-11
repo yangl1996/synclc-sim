@@ -153,6 +153,7 @@ func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Mine
 		inflight: make(map[int]struct{}),
 		downloaded: make(map[int]struct{}),
 		processorCh: make(chan BlockMetadata, 512),
+		blockBuffer: make(map[int]BlockMetadata),
 		miner: miner,
 		blockSize: blockSize,
 		blockProcCost: blockProcCost,

@@ -166,7 +166,7 @@ class BBTopo(Topo):
 def start_victim(net, victim_idx, num_victim, num_adv, at_unix, local_cap, global_cap, lottery):
     peers = []
     for i in range(num_victim):
-        if i == victim_idx:
+        if i <= victim_idx:
             continue
         peer = net.getNodeByName('v{}'.format(i))
         peers.append("{}:8000".format(peer.IP()))

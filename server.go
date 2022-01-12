@@ -75,6 +75,7 @@ func (s *Server) produceHonestBlocks() {
 			Invalid: false,
 		}
 		s.newValidatedBlock(nb)
+		s.downloaded[nb.Hash] = struct{}{}
 		s.lock.Unlock()
 	}
 }
@@ -466,7 +467,7 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 			}
 			_, blockValidated := s.validatedBlocks[block.Hash]
 			if blockValidated {
-				log.Fatalf("processing block %v which is already validated\n", block.Hash)
+				log.Fatalf("downloaded duplicate block %v\n", block.Hash)
 			}
 			parent, parentExists := s.validatedBlocks[block.Parent]
 			if !parentExists {
@@ -482,8 +483,10 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 				log.Fatalf("block round not incremental (from %v to %v)\n", parent.Round, block.Round)
 			}
 			if s.blockDelayFile != nil {
-				diffMs := time.Now().Sub(block.Timestamp).Milliseconds()
-				fmt.Fprintf(s.blockDelayFile, "%s\n", diffMs)
+				if block.Invalid == false {
+					diffMs := time.Now().Sub(block.Timestamp).Milliseconds()
+					fmt.Fprintf(s.blockDelayFile, "%v\n", diffMs)
+				}
 			}
 			s.lock.Unlock()
 

@@ -28,6 +28,18 @@ parser.add_argument('--bw-attacker',
                     help="Bandwidth of attacker links (Mb/s)",
                     default=1000)
 
+parser.add_argument('--local-cap',
+                    '-L',
+                    type=int,
+                    help="Local cap",
+                    default=1)
+
+parser.add_argument('--global-cap',
+                    '-G',
+                    type=int,
+                    help="Global cap",
+                    default=1)
+
 parser.add_argument('--num-victims',
                     '-V',
                     type=int,
@@ -39,6 +51,18 @@ parser.add_argument('--num-attackers',
                     type=int,
                     help="Number of attackers",
                     default=1)
+
+parser.add_argument('--victim-lottery',
+                    '-M',
+                    type=float,
+                    help="Chance of winning a lottery per victim",
+                    default=0.1)
+
+parser.add_argument('--attacker-lottery',
+                    '-B',
+                    type=float,
+                    help="Chance of winning a lottery for the attacker",
+                    default=0.1)
 
 parser.add_argument('--delay',
                     type=int,
@@ -174,9 +198,9 @@ if __name__ == "__main__":
 
     start_at = int(time()) + 5
     for i in range(args.num_victims):
-        start_victim(net, i, args.num_victims, args.num_attackers, start_at, 1, 2, 0.1)
+        start_victim(net, i, args.num_victims, args.num_attackers, start_at, args.local_cap, args.global_cap, args.victim_lottery)
     for i in range(args.num_attackers):
-        start_attacker(net, i, start_at, 0.1)
+        start_attacker(net, i, start_at, args.attacker_lottery)
 
     def sigint_handler(sig, frame):
         print("SIGINT captured, cleaning up")

@@ -183,6 +183,7 @@ if __name__ == "__main__":
         os.system("pkill synclc-sim")
         net.stop()
         os.system("mn -c")
+        os.system("chown leiy *.log *.txt")
         sys.exit(0)
     signal.signal(signal.SIGINT, sigint_handler)
     while True:

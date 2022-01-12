@@ -193,15 +193,6 @@ if __name__ == "__main__":
     net = Mininet(topo=topo, host=CPULimitedHost, link=AQMLink)
     net.start()
 
-    # This performs a basic all pairs ping test.
-    net.pingAll()
-
-    start_at = int(time()) + 5
-    for i in range(args.num_victims):
-        start_victim(net, i, args.num_victims, args.num_attackers, start_at, args.local_cap, args.global_cap, args.victim_lottery)
-    for i in range(args.num_attackers):
-        start_attacker(net, i, start_at, args.attacker_lottery)
-
     def sigint_handler(sig, frame):
         print("SIGINT captured, cleaning up")
         os.system("pkill synclc-sim")
@@ -210,5 +201,15 @@ if __name__ == "__main__":
         os.system("chown leiy *.log *.txt")
         sys.exit(0)
     signal.signal(signal.SIGINT, sigint_handler)
+
+    # This performs a basic all pairs ping test.
+    #net.pingAll()
+
+    start_at = int(time()) + 5
+    for i in range(args.num_victims):
+        start_victim(net, i, args.num_victims, args.num_attackers, start_at, args.local_cap, args.global_cap, args.victim_lottery)
+    for i in range(args.num_attackers):
+        start_attacker(net, i, start_at, args.attacker_lottery)
+
     while True:
         sleep(10000)

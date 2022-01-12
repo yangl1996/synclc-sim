@@ -1,10 +1,12 @@
 package main
 
 import (
+	"os"
 	"net"
 	"log"
 	"sync"
 	"time"
+	"fmt"
 	"encoding/gob"
 	"math/rand"
 	"github.com/hashicorp/yamux"
@@ -55,6 +57,8 @@ type Server struct {
 	// the following fields are only used by the attacker
 	attacker bool
 	tickets []int
+
+	blockDelayFile *os.File
 }
 
 func (s *Server) produceHonestBlocks() {
@@ -171,7 +175,7 @@ func (s *Server) tryProduceAttackBlocks(forPeer int) {
 	s.lock.Unlock()
 }
 
-func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Miner, blockSize int, blockProcCost time.Duration, attacker bool) (*Server, error) {
+func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Miner, blockSize int, blockProcCost time.Duration, attacker bool, outPrefix string) (*Server, error) {
 	s := &Server {
 		lock: &sync.Mutex{},
 		peerMsg: make(chan peerMessage, 1000),
@@ -186,6 +190,13 @@ func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Mine
 		blockSize: blockSize,
 		blockProcCost: blockProcCost,
 		attacker: attacker,
+	}
+	if outPrefix != "" {
+		df, err := os.Create(outPrefix+"-delay.txt")
+		if err != nil {
+			log.Fatalln(err)
+		}
+		s.blockDelayFile = df
 	}
 	// genesis block
 	s.validatedBlocks[0] = BlockMetadata{}
@@ -453,6 +464,10 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 			if (!parentDownloaded) && (!parentRequested) {
 				log.Fatalf("downloaded block %v whose parent %v has not been downloaded or requested\n", block.Hash, block.Parent)
 			}
+			_, blockValidated := s.validatedBlocks[block.Hash]
+			if blockValidated {
+				log.Fatalf("processing block %v which is already validated\n", block.Hash)
+			}
 			parent, parentExists := s.validatedBlocks[block.Parent]
 			if !parentExists {
 				log.Printf("buffering block %v whose parent %v has not been validated\n", block.Hash, block.Parent)
@@ -465,6 +480,10 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 			}
 			if parent.Round >= block.Round {
 				log.Fatalf("block round not incremental (from %v to %v)\n", parent.Round, block.Round)
+			}
+			if s.blockDelayFile != nil {
+				diffMs := time.Now().Sub(block.Timestamp).Milliseconds()
+				fmt.Fprintf(s.blockDelayFile, "%s\n", diffMs)
 			}
 			s.lock.Unlock()
 

@@ -29,6 +29,7 @@ func main() {
 	procParallel := flag.Int("parallel", 1, "number of workers to start")
 	slotMineProb := flag.Float64("lottery", 0.3, "prob to mine a block in a round")
 	attacker := flag.Bool("attack", false, "attacker mode")
+	outputPath := flag.String("output", "", "prefix of output path")
 
 	flag.Parse()
 
@@ -49,7 +50,7 @@ func main() {
 		rng = rand.New(src)
 	}
 	m := &Miner{rng, *slotMineProb, *mineSec, 1, make(chan int, 100)}
-	s, _ := NewServer(fmt.Sprintf("0.0.0.0:%v", *listenPort), *procParallel, *maxInflight, *globalInflight, m, *blockSize, *blockTime, *attacker)
+	s, _ := NewServer(fmt.Sprintf("0.0.0.0:%v", *listenPort), *procParallel, *maxInflight, *globalInflight, m, *blockSize, *blockTime, *attacker, *outputPath)
 	log.Printf("dummy node started, connecting to outgoing peers %v\n", peers)
 
 	if *peerList != "" {

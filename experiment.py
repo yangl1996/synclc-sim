@@ -152,28 +152,28 @@ def start_victim(net, victim_idx, num_victim, num_adv, at_unix, local_cap, globa
 
     v = net.getNodeByName('v{}'.format(victim_idx))
     output_prefix = "victim_{}".format(victim_idx)
-    proc = v.popen("./synclc-sim -local {} -global {} -lottery {} -parallel 4 -start {} -peers {} -output {} &> {}.log".format(local_cap, global_cap, lottery, at_unix, ','.join(peers), output_prefix, output_prefix, shell=True)
+    proc = v.popen("./synclc-sim -local {} -global {} -lottery {} -parallel 4 -start {} -peers {} -output {} &> {}.log".format(local_cap, global_cap, lottery, at_unix, ','.join(peers), output_prefix, output_prefix), shell=True)
     return proc
 
 def start_attacker(net, adv_idx, at_unix, lottery):
     a = net.getNodeByName('a{}'.format(adv_idx))
     output_prefix = "attacker_{}".format(adv_idx)
-    proc = v.popen("./synclc-sim -lottery {} -parallel 4 -start {} -attack -seed 42 &> {}.log".format(lottery, at_unix, output_prefix, shell=True)
+    proc = a.popen("./synclc-sim -lottery {} -parallel 4 -start {} -attack -seed 42 &> {}.log".format(lottery, at_unix, output_prefix), shell=True)
     return proc
 
 def bufferbloat():
     os.system("sysctl -w net.ipv4.tcp_congestion_control=%s" % args.cong)
-    topo = BBTopo()
+    topo = BBTopo(victims=args.num_victims, attackers=args.num_attackers)
     net = Mininet(topo=topo, host=CPULimitedHost, link=AQMLink)
     net.start()
 
     # This performs a basic all pairs ping test.
     net.pingAll()
 
-    start_at = time.time() + 5
+    start_at = int(time()) + 5
     for i in range(args.num_victims):
         start_victim(net, i, args.num_victims, args.num_attackers, start_at, 1, 2, 0.1)
-    for i in range(args.num_attacker):
+    for i in range(args.num_attackers):
         start_attacker(net, i, start_at, 0.1)
     sleep(10000)
 

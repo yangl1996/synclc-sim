@@ -3,6 +3,7 @@
 import math
 import os
 import sys
+import signal
 from argparse import ArgumentParser
 from multiprocessing import Process
 from subprocess import PIPE, Popen
@@ -161,7 +162,8 @@ def start_attacker(net, adv_idx, at_unix, lottery):
     proc = a.popen("./synclc-sim -lottery {} -parallel 4 -start {} -attack -seed 42 &> {}.log".format(lottery, at_unix, output_prefix), shell=True)
     return proc
 
-def bufferbloat():
+
+if __name__ == "__main__":
     os.system("sysctl -w net.ipv4.tcp_congestion_control=%s" % args.cong)
     topo = BBTopo(victims=args.num_victims, attackers=args.num_attackers)
     net = Mininet(topo=topo, host=CPULimitedHost, link=AQMLink)
@@ -175,7 +177,13 @@ def bufferbloat():
         start_victim(net, i, args.num_victims, args.num_attackers, start_at, 1, 2, 0.1)
     for i in range(args.num_attackers):
         start_attacker(net, i, start_at, 0.1)
-    sleep(10000)
 
-if __name__ == "__main__":
-    bufferbloat()
+    def sigint_handler(sig, frame):
+        print("SIGINT captured, cleaning up")
+        os.system("pkill synclc-sim")
+        net.stop()
+        os.system("mn -c")
+        sys.exit(0)
+    signal.signal(signal.SIGINT, sigint_handler)
+    while True:
+        sleep(10000)

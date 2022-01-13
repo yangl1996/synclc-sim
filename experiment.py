@@ -155,5 +155,5 @@ if __name__ == "__main__":
     for i in range(args.num_attackers):
         start_attacker(net, i, start_at, args.attacker_lottery, args.rule)
 
-    while True:
-        sleep(10000)
+    sleep(3600)
+    sigint_handler(None, None)

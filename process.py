@@ -31,6 +31,7 @@ file_index_re = re.compile(r"(attacker|victim)_([0-9]+)")
 chain_growth_re = re.compile(r"switched to block [a-z0-9]+ height ([0-9]+) at time ([0-9]+)")
 if __name__ == "__main__":
     files=glob.glob(args.dir+"/*.log")
+    first_chain_switch = None
     for filepath in files:
         filename = filepath.split('/')[-1]
         node_info = file_index_re.search(filename)
@@ -48,8 +49,10 @@ if __name__ == "__main__":
                         height = int(result.group(1))
                         timestamps.append(time)
                         heights.append(height)
+                        if first_chain_switch is None or first_chain_switch > time:
+                            first_chain_switch = time
             victims[node_index] = {"chain_growth": {"timestamp": timestamps, "height": heights}}
 
-    dataset = {"victims": victims, "attackers": attackers}
+    dataset = {"victims": victims, "attackers": attackers, "first_chain_switch": first_chain_switch}
     with open(args.out, "w") as outfile:
         json.dump(dataset, outfile, sort_keys=True, indent=4)

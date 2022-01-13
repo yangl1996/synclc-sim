@@ -87,20 +87,6 @@ func (s *Server) produceHonestBlocks() {
 }
 
 func (s *Server) collectAttackTickets() {
-	go func() {
-		ticker := time.NewTicker(10 * time.Millisecond)
-		for {
-			select {
-			case <-ticker.C:
-				s.lock.Lock()
-				nPeers := len(s.peers)
-				s.lock.Unlock()
-				for i := 0; i < nPeers; i++ {
-					s.tryProduceAttackBlocks(i)
-				}
-			}
-		}
-	}()
 	for r := range s.miner.tickets {
 		s.lock.Lock()
 		s.tickets = append(s.tickets, r)
@@ -233,8 +219,31 @@ func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Mine
 	go s.processMessages()
 	if !attacker {
 		go s.produceHonestBlocks()
+		go func() {
+			ticker := time.NewTicker(20 * time.Millisecond)
+			for {
+				select {
+				case <-ticker.C:
+					s.tryRequestNextBlock()
+				}
+			}
+		}()
 	} else {
 		go s.collectAttackTickets()
+		go func() {
+			ticker := time.NewTicker(10 * time.Millisecond)
+			for {
+				select {
+				case <-ticker.C:
+					s.lock.Lock()
+					nPeers := len(s.peers)
+					s.lock.Unlock()
+					for i := 0; i < nPeers; i++ {
+						s.tryProduceAttackBlocks(i)
+					}
+				}
+			}
+		}()
 	}
 	return s, nil
 }
@@ -299,11 +308,6 @@ func (s *Server) processMessages() {
 			s.lock.Unlock()
 		default:
 			panic("unhandled message")
-		}
-		if !s.attacker {
-			s.tryRequestNextBlock()
-		} else {
-			s.tryProduceAttackBlocks(from)
 		}
 	}
 }

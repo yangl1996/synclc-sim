@@ -317,8 +317,10 @@ func (s *Server) tryRequestNextBlock() {
 	tried := make(map[int]struct{})
 	for s.globalCap > len(s.inflight) && len(tried) < len(s.peers) {
 		// rule for deciding which peer(s) to fetch from
-		bestPeer := -1
+		bestPeerByHeight := -1
 		bestHeight := s.adoptedTip.Height
+		bestPeerByRound := -1
+		bestRound := s.adoptedTip.Round
 		for pidx := range s.peers {
 			// do not try peers that has been tried
 			if _, there := tried[pidx]; there {
@@ -348,9 +350,22 @@ func (s *Server) tryRequestNextBlock() {
 			}
 			peerTip := s.peers[pidx].chain[len(s.peers[pidx].chain)-1]
 			if peerTip.Height > bestHeight {
-				bestPeer = pidx
+				bestPeerByHeight = pidx
 				bestHeight = peerTip.Height
 			}
+			if peerTip.Round > bestRound {
+				bestPeerByRound = pidx
+				bestRound = peerTip.Round
+			}
+		}
+		bestPeer := -1
+		switch s.downloadRule {
+		case FreshestChainFirst:
+			bestPeer = bestPeerByRound
+		case LongestChainFirst:
+			bestPeer = bestPeerByHeight
+		default:
+			panic("unknown download rule")
 		}
 		if bestPeer == -1 {
 			break

@@ -90,6 +90,20 @@ func (s *Server) collectAttackTickets() {
 			s.tryProduceAttackBlocks(i)
 		}
 	}
+	go func() {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		for {
+			select {
+			case <-ticker.C:
+				s.lock.Lock()
+				nPeers := len(s.peers)
+				s.lock.Unlock()
+				for i := 0; i < nPeers; i++ {
+					s.tryProduceAttackBlocks(i)
+				}
+			}
+		}
+	}()
 }
 
 func (s *Server) tryProduceAttackBlocks(forPeer int) {

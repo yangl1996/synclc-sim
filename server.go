@@ -34,6 +34,11 @@ type peerHandle struct {
 	bestAttackTargetTip BlockMetadata
 }
 
+const (
+	LongestChainFirst = iota
+	FreshestChainFirst
+)
+
 type Server struct {
 	lock *sync.Mutex
 	peerMsg chan peerMessage
@@ -47,6 +52,7 @@ type Server struct {
 	inflight map[int]struct{}
 	downloaded map[int]struct{}
 	adoptedTip BlockMetadata
+	downloadRule int
 
 	processorCh chan BlockMetadata
 
@@ -190,7 +196,7 @@ func (s *Server) tryProduceAttackBlocks(forPeer int) {
 	s.lock.Unlock()
 }
 
-func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Miner, blockSize int, blockProcCost time.Duration, attacker bool, outPrefix string) (*Server, error) {
+func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Miner, blockSize int, blockProcCost time.Duration, attacker bool, rule int, outPrefix string) (*Server, error) {
 	s := &Server {
 		lock: &sync.Mutex{},
 		peerMsg: make(chan peerMessage, 1000),
@@ -205,6 +211,7 @@ func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Mine
 		blockSize: blockSize,
 		blockProcCost: blockProcCost,
 		attacker: attacker,
+		downloadRule: rule,
 	}
 	if outPrefix != "" {
 		df, err := os.Create(outPrefix+"-delay.txt")

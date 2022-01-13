@@ -30,10 +30,11 @@ func main() {
 	slotMineProb := flag.Float64("lottery", 0.3, "prob to mine a block in a round")
 	attacker := flag.Bool("attack", false, "attacker mode")
 	outputPath := flag.String("output", "", "prefix of output path")
+	downloadRule := flag.String("rule", "longest", "download prioritization rule (longest, freshest)")
 
 	flag.Parse()
 
-	rand.Seed(time.Now().UnixNano())
+	rand.Seed(time.Now().UnixNano())	// this is for hashes so seeds do not matter
 
 	startTime := time.Unix(*startUnix, 0)
 	var peers []string
@@ -49,8 +50,15 @@ func main() {
 		src := rand.NewSource(*randSeed)
 		rng = rand.New(src)
 	}
+	var dlRule int
+	switch *downloadRule {
+	case "freshest":
+		dlRule = FreshestChainFirst
+	case "longest":
+		dlRule = LongestChainFirst
+	}
 	m := &Miner{rng, *slotMineProb, *mineSec, 1, make(chan int, 100)}
-	s, _ := NewServer(fmt.Sprintf("0.0.0.0:%v", *listenPort), *procParallel, *maxInflight, *globalInflight, m, *blockSize, *blockTime, *attacker, *outputPath)
+	s, _ := NewServer(fmt.Sprintf("0.0.0.0:%v", *listenPort), *procParallel, *maxInflight, *globalInflight, m, *blockSize, *blockTime, *attacker, dlRule, *outputPath)
 	log.Printf("dummy node started, connecting to outgoing peers %v\n", peers)
 
 	if *peerList != "" {

@@ -139,7 +139,7 @@ func (s *Server) tryProduceAttackBlocks(forPeer int) {
 		return
 	}
 	s.lock.Lock()
-	log.Printf("mining spam chain on top of %v (height %v round %v) to height %v round %v\n", targetTip.Hash, targetTip.Height, targetTip.Round, targetTip.Height+bestTicketCount, attackTickets[0])
+	log.Printf("mining spam chain to height %v round %v, peer tip at height %v\n", targetTip.Height+bestTicketCount, attackTickets[0], victimHeight)
 	// make sure we have all peer's block in the validated set otherwise we will
 	// make mistake when computing chain diff
 	ptr := len(s.peers[forPeer].chain)-1
@@ -231,7 +231,7 @@ func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Mine
 	} else {
 		go s.collectAttackTickets()
 		go func() {
-			ticker := time.NewTicker(10 * time.Millisecond)
+			ticker := time.NewTicker(5 * time.Millisecond)
 			for {
 				select {
 				case <-ticker.C:
@@ -532,6 +532,7 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 
 			block.process()
 			if block.Invalid {
+				log.Printf("downloaded invalid block %v\n", block.Hash)
 				continue
 			}
 

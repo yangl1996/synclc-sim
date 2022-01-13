@@ -81,67 +81,6 @@ parser.add_argument('--cong',
 # Expt parameters
 args = parser.parse_args()
 
-
-class BasicIntf(TCIntf):
-    """An interface with TSO and GSO disabled."""
-
-    def config(self, **params):
-        result = super(BasicIntf, self).config(**params)
-
-        self.cmd('ethtool -K %s tso off gso off' % self)
-
-        return result
-
-
-class PIEIntf(BasicIntf):
-    """An interface that runs the Proportional Integral controller-Enhanced AQM
-    Algorithm. See the man page for info about paramaters:
-    http://man7.org/linux/man-pages/man8/tc-pie.8.html."""
-
-    def config(self, limit=1000, target="20ms", **params):
-        result = super(PIEIntf, self).config(**params)
-
-        cmd = ('%s qdisc add dev %s' + result['parent'] + 'handle 11: pie' +
-               ' limit ' + str(limit) + ' target ' + target)
-        parent = ' parent 10:1 '
-
-        debug("adding pie w/cmd: %s\n" % cmd)
-        tcoutput = self.tc(cmd)
-        if tcoutput != '':
-            error("*** Error: %s" % tcoutput)
-        debug("cmd:", cmd, '\n')
-        debug("output:", tcoutput, '\n')
-        result['tcoutputs'].append(tcoutput)
-        result['parent'] = parent
-
-        return result
-
-
-class AQMLink(Link):
-    """A link that runs an AQM scheme on 0-2 of its interfaces."""
-
-    def __init__(self,
-                 node1,
-                 node2,
-                 port1=None,
-                 port2=None,
-                 intfName1=None,
-                 intfName2=None,
-                 cls1=TCIntf,
-                 cls2=TCIntf,
-                 **params):
-        super(AQMLink, self).__init__(node1,
-                                      node2,
-                                      port1=port1,
-                                      port2=port2,
-                                      intfName1=intfName1,
-                                      intfName2=intfName2,
-                                      cls1=cls1,
-                                      cls2=cls2,
-                                      params1=params,
-                                      params2=params)
-
-
 class BBTopo(Topo):
 
     def __init__(self, victims=2, attackers=1):
@@ -153,12 +92,12 @@ class BBTopo(Topo):
             v = self.addHost('v{}'.format(i))
             # use PIE at the switch to avoid tuning the buffer size
             self.addLink(v, s0, bw=args.bw_victim, delay="{}ms".format(
-                args.delay), max_queue_size=args.maxq, cls1=BasicIntf, cls2=PIEIntf)
+                args.delay), max_queue_size=args.maxq)
 
         for i in range(attackers):
             a = self.addHost('a{}'.format(i))
             self.addLink(a, s0, bw=args.bw_attacker, delay="{}ms".format(
-                args.delay), max_queue_size=args.maxq, cls1=BasicIntf, cls2=PIEIntf)
+                args.delay), max_queue_size=args.maxq)
 
         return
 
@@ -190,7 +129,7 @@ def start_attacker(net, adv_idx, at_unix, lottery):
 if __name__ == "__main__":
     os.system("sysctl -w net.ipv4.tcp_congestion_control=%s" % args.cong)
     topo = BBTopo(victims=args.num_victims, attackers=args.num_attackers)
-    net = Mininet(topo=topo, host=CPULimitedHost, link=AQMLink)
+    net = Mininet(topo=topo, link=TCLink)
     net.start()
 
     def sigint_handler(sig, frame):

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"os"
 	"net"
 	"log"
 	"sync"
 	"time"
+	"fmt"
 	"encoding/gob"
 	"math/rand"
 	"github.com/hashicorp/yamux"
@@ -21,6 +23,15 @@ type peerHandle struct {
 	hpCh chan Message
 	lpCh chan Message
 	downloadPtr int
+
+	// the following fields are only used by the attacker
+	fakeTip BlockMetadata // our tip as believed by the victim
+	// tracks the attackable tickets
+	// these fields are not used for now; they are intended to track
+	// the best valid block as the base for the attack; we want to maximize
+	// the achievable height of equivocating chains
+	bestAttackFirstTicketIndex int
+	bestAttackTargetTip BlockMetadata
 }
 
 type Server struct {
@@ -31,6 +42,7 @@ type Server struct {
 	globalCap int
 	localCap int
 
+	blockBuffer map[int]BlockMetadata
 	validatedBlocks map[int]BlockMetadata	// downloaded and validated blocks
 	inflight map[int]struct{}
 	downloaded map[int]struct{}
@@ -41,8 +53,12 @@ type Server struct {
 	miner *Miner
 	blockSize int
 	blockProcCost time.Duration
+
+	// the following fields are only used by the attacker
 	attacker bool
 	tickets []int
+
+	blockDelayFile *os.File
 }
 
 func (s *Server) produceHonestBlocks() {
@@ -59,6 +75,7 @@ func (s *Server) produceHonestBlocks() {
 			Invalid: false,
 		}
 		s.newValidatedBlock(nb)
+		s.downloaded[nb.Hash] = struct{}{}
 		s.lock.Unlock()
 	}
 }
@@ -67,75 +84,99 @@ func (s *Server) collectAttackTickets() {
 	for r := range s.miner.tickets {
 		s.lock.Lock()
 		s.tickets = append(s.tickets, r)
+		nPeers := len(s.peers)
 		s.lock.Unlock()
-		s.tryProduceAttackBlocks()
+		for i := 0; i < nPeers; i++ {
+			s.tryProduceAttackBlocks(i)
+		}
 	}
 }
 
-func (s *Server) tryProduceAttackBlocks() {
+func (s *Server) tryProduceAttackBlocks(forPeer int) {
 	s.lock.Lock()
-	peerTip := s.peers[0].chain[len(s.peers[0].chain)-1]
-	// We can attack when we have 1 ticket after peer's adopted chain, by using the
-	// ticket to build invalid blocks off peerTip. Note that this does not guarantee
-	// a successful attack, because the peer might hear an honest announcement of
-	// a longer chain than us. To maximize our success probability, we should use all
-	// available tickets to build spam chains.
+
+	var targetTip BlockMetadata
+
+	// We can attack when we have a longer chain than peer's adopted chain.
+	// Search from peer's adopted tip backwards to find the longest chain
+	// we can build, given that round numbers should be strictly increasing.
 
 	// collect tickets valid for the attack
 	attackTickets := []int{}
-	ptr := len(s.tickets)-1
-	for ptr >= 0 && s.tickets[ptr] > peerTip.Round {
-		attackTickets = append(attackTickets, s.tickets[ptr])
-		ptr -= 1
+	ticketPtr := len(s.tickets)-1	// the next ticket to consider
+	tipPtr := len(s.peers[forPeer].chain)-1	// the next tip index to consider
+	victimHeight := s.peers[forPeer].chain[tipPtr].Height
+
+	// search for at most 30 blocks back
+	searched := 0
+	bestHeightDiff := 0
+	bestTicketCount := 0
+	for tipPtr >= 0 && searched < 30 {
+		// collect more tickets valid for this tipPtr
+		for ticketPtr >= 0 && s.tickets[ticketPtr] > s.peers[forPeer].chain[tipPtr].Round {
+			attackTickets = append(attackTickets, s.tickets[ticketPtr])
+			ticketPtr -= 1
+		}
+		ourHeight := s.peers[forPeer].chain[tipPtr].Height + len(attackTickets)
+		if ourHeight - victimHeight > bestHeightDiff {
+			bestHeightDiff = ourHeight - victimHeight
+			bestTicketCount = len(attackTickets)
+			targetTip = s.peers[forPeer].chain[tipPtr]
+		}
+		tipPtr -= 1
+		searched += 1
 	}
+
 	s.lock.Unlock()
-	if len(attackTickets) == 0 {
+	if bestHeightDiff == 0 {
 		// no ticket for attacking
 		return
 	}
 	s.lock.Lock()
-	fakeTip := peerTip
-	log.Printf("mining spam chain of size %v on top of %v\n", len(attackTickets), fakeTip.Hash)
+	log.Printf("mining spam chain on top of %v (height %v round %v) to height %v round %v\n", targetTip.Hash, targetTip.Height, targetTip.Round, targetTip.Height+bestTicketCount, attackTickets[0])
 	// make sure we have all peer's block in the validated set otherwise we will
 	// make mistake when computing chain diff
-	ptr = len(s.peers[0].chain)-1
+	ptr := len(s.peers[forPeer].chain)-1
 	for ptr >= 0 {
-		if _, there := s.validatedBlocks[s.peers[0].chain[ptr].Hash]; there {
+		if _, there := s.validatedBlocks[s.peers[forPeer].chain[ptr].Hash]; there {
 			break
 		} else {
-			s.validatedBlocks[s.peers[0].chain[ptr].Hash] = s.peers[0].chain[ptr]
+			s.validatedBlocks[s.peers[forPeer].chain[ptr].Hash] = s.peers[forPeer].chain[ptr]
 		}
 		ptr -= 1
 	}
-	for tidx := len(attackTickets)-1; tidx >= 0; tidx-- {
+	for tidx := bestTicketCount-1; tidx >= 0; tidx-- {
 		nb := BlockMetadata {
 			Timestamp: time.Now(),
 			ProcCost: s.blockProcCost,
 			Hash: rand.Int(),
 			Round: attackTickets[tidx],
 			Size: s.blockSize,
-			Height: fakeTip.Height+1,
-			Parent: fakeTip.Hash,
+			Height: targetTip.Height+1,
+			Parent: targetTip.Hash,
 			Invalid: true,
 		}
-		fakeTip = nb
+		targetTip = nb
 		// insert the spam block
 		s.validatedBlocks[nb.Hash] = nb
 	}
-	added, removed := s.adoptBlock(fakeTip)
+	added, removed := s.computeDiff(s.peers[forPeer].fakeTip, targetTip)
+	s.peers[forPeer].fakeTip = targetTip
 	// memory optimization: remove the old blocks from the map
 	for _, b := range removed {
-		delete(s.validatedBlocks, b.Hash)
+		if b.Invalid {
+			delete(s.validatedBlocks, b.Hash)
+		}
 	}
 	msg := &ChainUpdate {
 		added,
 		removed,
 	}
-	s.peers[0].hpCh <- msg
+	s.peers[forPeer].hpCh <- msg
 	s.lock.Unlock()
 }
 
-func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Miner, blockSize int, blockProcCost time.Duration, attacker bool) (*Server, error) {
+func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Miner, blockSize int, blockProcCost time.Duration, attacker bool, outPrefix string) (*Server, error) {
 	s := &Server {
 		lock: &sync.Mutex{},
 		peerMsg: make(chan peerMessage, 1000),
@@ -145,10 +186,18 @@ func NewServer(addr string, ncores int, localCap int, globalCap int, miner *Mine
 		inflight: make(map[int]struct{}),
 		downloaded: make(map[int]struct{}),
 		processorCh: make(chan BlockMetadata, 512),
+		blockBuffer: make(map[int]BlockMetadata),
 		miner: miner,
 		blockSize: blockSize,
 		blockProcCost: blockProcCost,
 		attacker: attacker,
+	}
+	if outPrefix != "" {
+		df, err := os.Create(outPrefix+"-delay.txt")
+		if err != nil {
+			log.Fatalln(err)
+		}
+		s.blockDelayFile = df
 	}
 	// genesis block
 	s.validatedBlocks[0] = BlockMetadata{}
@@ -215,7 +264,7 @@ func (s *Server) processMessages() {
 				s.lock.Lock()
 				_, there := s.validatedBlocks[m.Header.Hash]
 				if !there {
-					panic("missing requested block")
+					log.Fatalf("requested block body %v has not been validated\n", m.Header.Hash)
 				}
 				out.BlockMetadata = s.validatedBlocks[m.Header.Hash]
 				s.lock.Unlock()
@@ -233,7 +282,7 @@ func (s *Server) processMessages() {
 		if !s.attacker {
 			s.tryRequestNextBlock()
 		} else {
-			s.tryProduceAttackBlocks()
+			s.tryProduceAttackBlocks(from)
 		}
 	}
 }
@@ -297,16 +346,14 @@ func (s *Server) tryRequestNextBlock() {
 }
 
 func (s *Server) connect(addr string) error {
-	backoff := 200	// ms
+	backoff := 100	// ms
 	var conn net.Conn
 	var err error
 	for {
+		log.Printf("dialing %s\n", addr)
 		conn, err = net.Dial("tcp", addr)
 		if err != nil {
 			time.Sleep(time.Duration(backoff) * time.Millisecond)
-			if backoff < 1000 {
-				backoff *= 2
-			}
 		} else {
 			break
 		}
@@ -412,22 +459,48 @@ func (s *Server) listenForPeers(addr string) error {
 func (s *Server) processDownloadedBlocks(ncores int) {
 	serve := func() {
 		for block := range s.processorCh {
+			s.lock.Lock()
+			_, parentDownloaded := s.downloaded[block.Parent]
+			_, parentRequested := s.inflight[block.Parent]
+			if (!parentDownloaded) && (!parentRequested) {
+				log.Fatalf("downloaded block %v whose parent %v has not been downloaded or requested\n", block.Hash, block.Parent)
+			}
+			_, blockValidated := s.validatedBlocks[block.Hash]
+			if blockValidated {
+				log.Fatalf("downloaded duplicate block %v\n", block.Hash)
+			}
+			parent, parentExists := s.validatedBlocks[block.Parent]
+			if !parentExists {
+				log.Printf("buffering block %v whose parent %v has not been validated\n", block.Hash, block.Parent)
+				s.blockBuffer[block.Parent] = block
+				s.lock.Unlock()
+				continue
+			}
+			if parent.Height != block.Height -1 {
+				log.Fatalf("block height not incremental (from %v to %v)\n", parent.Height, block.Height)
+			}
+			if parent.Round >= block.Round {
+				log.Fatalf("block round not incremental (from %v to %v)\n", parent.Round, block.Round)
+			}
+			if s.blockDelayFile != nil {
+				if block.Invalid == false {
+					diffMs := time.Now().Sub(block.Timestamp).Milliseconds()
+					fmt.Fprintf(s.blockDelayFile, "%v\n", diffMs)
+				}
+			}
+			s.lock.Unlock()
+
 			block.process()
 			if block.Invalid {
 				continue
 			}
+
 			s.lock.Lock()
-			parent, parentExists := s.validatedBlocks[block.Parent]
-			if !parentExists {
-				panic("downloaded a block whose parent has not been downloaded")
-			}
-			if parent.Height != block.Height -1 {
-				panic("block height not incremental")
-			}
-			if parent.Round >= block.Round {
-				panic("block round not incremental")
-			}
 			s.newValidatedBlock(block)
+			if buffered, exists := s.blockBuffer[block.Hash]; exists {
+				delete(s.blockBuffer, block.Hash)
+				s.processorCh <- buffered
+			}
 			s.lock.Unlock()
 		}
 	}
@@ -436,11 +509,11 @@ func (s *Server) processDownloadedBlocks(ncores int) {
 	}
 }
 
-func (s *Server) adoptBlock(block BlockMetadata) (added, removed []BlockMetadata) {
-	tip := s.adoptedTip
+func (s *Server) computeDiff(from, to BlockMetadata) (added, removed []BlockMetadata) {
+	tip := from
 	// figure out the diff
 	oldT := tip
-	newT := block
+	newT := to 
 	for oldT.Height != newT.Height {
 		if oldT.Height > newT.Height {
 			removed = append(removed, oldT)
@@ -459,7 +532,6 @@ func (s *Server) adoptBlock(block BlockMetadata) (added, removed []BlockMetadata
 		oldT = s.validatedBlocks[oldT.Parent]
 		newT = s.validatedBlocks[newT.Parent]
 	}
-	s.adoptedTip = block
 	return added, removed
 }
 
@@ -474,7 +546,8 @@ func (s *Server) newValidatedBlock(block BlockMetadata) {
 	// compute chain switch
 	tip := s.adoptedTip
 	if tip.Height < block.Height || (tip.Height == block.Height && tip.Hash > block.Hash) {
-		added, removed := s.adoptBlock(block)
+		added, removed := s.computeDiff(tip, block)
+		s.adoptedTip = block
 		if len(removed) != 0 || len(added) != 0 {
 			log.Printf("tip switched to block %v height %v at time %v rolling back %v forward %v \n", block.Hash, block.Height, time.Now().UnixMicro(), len(removed), len(added))
 			for pidx := range s.peers {

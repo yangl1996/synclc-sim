@@ -87,15 +87,6 @@ func (s *Server) produceHonestBlocks() {
 }
 
 func (s *Server) collectAttackTickets() {
-	for r := range s.miner.tickets {
-		s.lock.Lock()
-		s.tickets = append(s.tickets, r)
-		nPeers := len(s.peers)
-		s.lock.Unlock()
-		for i := 0; i < nPeers; i++ {
-			s.tryProduceAttackBlocks(i)
-		}
-	}
 	go func() {
 		ticker := time.NewTicker(10 * time.Millisecond)
 		for {
@@ -110,6 +101,15 @@ func (s *Server) collectAttackTickets() {
 			}
 		}
 	}()
+	for r := range s.miner.tickets {
+		s.lock.Lock()
+		s.tickets = append(s.tickets, r)
+		nPeers := len(s.peers)
+		s.lock.Unlock()
+		for i := 0; i < nPeers; i++ {
+			s.tryProduceAttackBlocks(i)
+		}
+	}
 }
 
 func (s *Server) tryProduceAttackBlocks(forPeer int) {

@@ -1,1 +1,2 @@
-slow.mahi is 12 mbps
+If running Mininet inside a container, the host machine must load the openvswitch
+kernel module by installing openvswitch-switch.

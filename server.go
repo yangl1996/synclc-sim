@@ -399,8 +399,10 @@ func (s *Server) connect(addr string) error {
 		}
 	}
 	log.Printf("outgoing connection to %s\n", conn.RemoteAddr().String())
+	config := yamux.DefaultConfig()
+	config.EnableKeepAlive = false
 	// outgoing connection, initiate two yamux streams
-	session, err := yamux.Client(conn, nil)
+	session, err := yamux.Client(conn, config)
 	if err != nil {
 		return err
 	}
@@ -454,7 +456,9 @@ func (s *Server) listenForPeers(addr string) error {
 		}
 		log.Printf("incoming connection from %s\n", conn.RemoteAddr().String())
 		// incoming connection, wait for two yamux streams
-		session, err := yamux.Server(conn, nil)
+		config := yamux.DefaultConfig()
+		config.EnableKeepAlive = false
+		session, err := yamux.Server(conn, config)
 		if err != nil {
 			return err
 		}

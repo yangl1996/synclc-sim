@@ -123,6 +123,7 @@ def start_victim(net, victim_idx, num_victim, num_adv, at_unix, local_cap, globa
     v = net.getNodeByName('v{}'.format(victim_idx))
     output_prefix = "victim_{}".format(victim_idx)
     proc = v.popen("./synclc-sim -local {} -global {} -lottery {} -parallel 4 -start {} -peers {} -output {} -rule {} &> {}.log".format(local_cap, global_cap, lottery, at_unix, ','.join(peers), output_prefix, download_rule, output_prefix), shell=True)
+    mon = v.popen("sudo bmon -o format:fmt='$(element:name) rxbytes=$(attr:rx:bytes) txbytes=$(attr:tx:bytes)\n' -p '{}' &> {}-traffic.txt".format(v.intf(None).name, output_prefix), shell=True)
     return proc
 
 def start_attacker(net, adv_idx, at_unix, lottery, download_rule):
@@ -140,7 +141,8 @@ if __name__ == "__main__":
 
     def sigint_handler(sig, frame):
         print("SIGINT captured, cleaning up")
-        os.system("pkill synclc-sim")
+        os.system("sudo pkill synclc-sim")
+        os.system("sudo pkill bmon")
         net.stop()
         os.system("mn -c")
         sys.exit(0)

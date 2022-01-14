@@ -27,14 +27,7 @@ if __name__ == "__main__":
     with open(args.input) as f:
         d = json.load(f)
         first_chain_switch = d['first_chain_switch']
-        """
-        timePeriods = d['victims']['0']['under_spam']
-        collect = []
-        for i in range(len(timePeriods['start_timestamp'])):
-            collect.append('{}/{}'.format((float(timePeriods['start_timestamp'][i])-first_chain_switch)/1000000.0, (float(timePeriods['end_timestamp'][i])-first_chain_switch)/1000000.0))
-        print(', '.join(collect))
-        """
-        # chain growth
+        tot_chain_growth_rates = 0.0
         for k in d['victims']:
             height = d['victims'][k]['chain_growth']['height']
             timestamp = d['victims'][k]['chain_growth']['timestamp']
@@ -44,3 +37,16 @@ if __name__ == "__main__":
                 outfile.write("time height\n")
                 for i in range(l):
                     outfile.write("{} {}\n".format(x[i], height[i]))
+
+            timePeriods = d['victims'][k]['under_spam']
+            collect = []
+            for i in range(len(timePeriods['start_timestamp'])):
+                collect.append('{}/{}'.format((float(timePeriods['start_timestamp'][i])-first_chain_switch)/1000000.0, (float(timePeriods['end_timestamp'][i])-first_chain_switch)/1000000.0))
+            print("victim {} attack timespans: {}".format(k, ', '.join(collect)))
+
+            chain_growth = float(height[-1]-height[0]) / float(timestamp[-1]-timestamp[0]) * 1000000.0
+            tot_chain_growth_rates += chain_growth
+        print("average chain growth: {}", tot_chain_growth_rates / len(d['victims'])
+
+            
+

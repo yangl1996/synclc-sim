@@ -84,6 +84,11 @@ parser.add_argument('--cong',
                     help="Congestion control algorithm to use",
                     default="reno")
 
+parser.add_argument('--no-egress-limit',
+                    help="Do not limit egress bandwidth of victims",
+                    default=False,
+                    action="store_true")
+
 # Expt parameters
 args = parser.parse_args()
 
@@ -121,6 +126,8 @@ def start_victim(net, victim_idx, num_victim, num_adv, at_unix, local_cap, globa
         peers.append("{}:8000".format(peer.IP()))
 
     v = net.getNodeByName('v{}'.format(victim_idx))
+    if args.no_egress_limit:
+        v.intf().config(bw=1000, smooth_change = False) 
     output_prefix = "victim_{}".format(victim_idx)
     proc = v.popen("./synclc-sim -local {} -global {} -lottery {} -parallel 4 -start {} -peers {} -output {} -rule {} &> {}.log".format(local_cap, global_cap, lottery, at_unix, ','.join(peers), output_prefix, download_rule, output_prefix), shell=True)
     mon = v.popen("sudo bmon -o format:fmt='$(element:name) rxbytes=$(attr:rx:bytes) txbytes=$(attr:tx:bytes)\n' -p '{}' &> {}-traffic.txt".format(v.intf(None).name, output_prefix), shell=True)

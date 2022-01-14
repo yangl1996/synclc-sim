@@ -26,8 +26,15 @@ args = parser.parse_args()
 if __name__ == "__main__":
     with open(args.input) as f:
         d = json.load(f)
-        # chain growth
         first_chain_switch = d['first_chain_switch']
+        """
+        timePeriods = d['victims']['0']['under_spam']
+        collect = []
+        for i in range(len(timePeriods['start_timestamp'])):
+            collect.append('{}/{}'.format((float(timePeriods['start_timestamp'][i])-first_chain_switch)/1000000.0, (float(timePeriods['end_timestamp'][i])-first_chain_switch)/1000000.0))
+        print(', '.join(collect))
+        """
+        # chain growth
         for k in d['victims']:
             height = d['victims'][k]['chain_growth']['height']
             timestamp = d['victims'][k]['chain_growth']['timestamp']

@@ -1,4 +1,11 @@
-If running Mininet inside a container, the host machine must load the openvswitch
-kernel module by installing openvswitch-switch.
+Use demo.sh to start a quick demo without Mininet. Use stop.sh to stop the demo.
 
-python-dateutil
+To run experiments, you need Mininet. If running Mininet inside a container,
+the host machine must load the openvswitch kernel module by installing
+openvswitch-switch.
+
+Use process.py to process results and save into a JSON file, and use data_to_plot.py
+to produce files for LaTeX. The core simulation is in pure Golang.
+
+Python deps:
+- python-dateutil

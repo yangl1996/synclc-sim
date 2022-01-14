@@ -44,9 +44,7 @@ if __name__ == "__main__":
                 collect.append('{}/{}'.format((float(timePeriods['start_timestamp'][i])-first_chain_switch)/1000000.0, (float(timePeriods['end_timestamp'][i])-first_chain_switch)/1000000.0))
             print("victim {} attack timespans: {}".format(k, ', '.join(collect)))
 
-            chain_growth = float(height[-1]-height[0]) / float(timestamp[-1]-timestamp[0]) * 1000000.0
+            #chain_growth = float(height[-1]-height[0]) / float(timestamp[-1]-timestamp[0]) * 1000000.0
+            chain_growth = float(height[-1]) / 3600.0 
             tot_chain_growth_rates += chain_growth
-        print("average chain growth: {}", tot_chain_growth_rates / len(d['victims'])
-
-            
-
+        print("average chain growth: {}".format(tot_chain_growth_rates / len(d['victims'])))

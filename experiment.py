@@ -89,6 +89,11 @@ parser.add_argument('--no-egress-limit',
                     default=False,
                     action="store_true")
 
+parser.add_argument('--block-size',
+                    help="Block size in bytes",
+                    default=100000,
+                    type=int)
+
 # Expt parameters
 args = parser.parse_args()
 
@@ -113,7 +118,7 @@ class BBTopo(Topo):
         return
 
 
-def start_victim(net, victim_idx, num_victim, num_adv, at_unix, local_cap, global_cap, lottery, download_rule):
+def start_victim(net, victim_idx, num_victim, num_adv, at_unix, local_cap, global_cap, lottery, download_rule, block_size):
     peers = []
     for i in range(num_victim):
         if i <= victim_idx:
@@ -129,14 +134,14 @@ def start_victim(net, victim_idx, num_victim, num_adv, at_unix, local_cap, globa
     if args.no_egress_limit:
         v.intf().config(bw=1000, smooth_change = False) 
     output_prefix = "victim_{}".format(victim_idx)
-    proc = v.popen("./synclc-sim -local {} -global {} -lottery {} -parallel 4 -start {} -peers {} -output {} -rule {} &> {}.log".format(local_cap, global_cap, lottery, at_unix, ','.join(peers), output_prefix, download_rule, output_prefix), shell=True)
+    proc = v.popen("./synclc-sim -local {} -global {} -lottery {} -parallel 4 -start {} -peers {} -output {} -rule {} -size {} &> {}.log".format(local_cap, global_cap, lottery, at_unix, ','.join(peers), output_prefix, download_rule, block_size, output_prefix), shell=True)
     mon = v.popen("sudo bmon -o format:fmt='$(element:name) rxbytes=$(attr:rx:bytes) txbytes=$(attr:tx:bytes)\n' -p '{}' &> {}-traffic.txt".format(v.intf(None).name, output_prefix), shell=True)
     return proc
 
-def start_attacker(net, adv_idx, at_unix, lottery, download_rule):
+def start_attacker(net, adv_idx, at_unix, lottery, download_rule, block_size):
     a = net.getNodeByName('a{}'.format(adv_idx))
     output_prefix = "attacker_{}".format(adv_idx)
-    proc = a.popen("./synclc-sim -lottery {} -parallel 4 -start {} -rule {} -attack -seed 42 &> {}.log".format(lottery, at_unix, download_rule, output_prefix), shell=True)
+    proc = a.popen("./synclc-sim -lottery {} -parallel 4 -start {} -rule {} -attack -seed 42 -size {} &> {}.log".format(lottery, at_unix, download_rule, block_size, output_prefix), shell=True)
     return proc
 
 
@@ -160,9 +165,9 @@ if __name__ == "__main__":
 
     start_at = int(time()) + 5
     for i in range(args.num_victims):
-        start_victim(net, i, args.num_victims, args.num_attackers, start_at, args.local_cap, args.global_cap, args.victim_lottery, args.rule)
+        start_victim(net, i, args.num_victims, args.num_attackers, start_at, args.local_cap, args.global_cap, args.victim_lottery, args.rule, args.block_size)
     for i in range(args.num_attackers):
-        start_attacker(net, i, start_at, args.attacker_lottery, args.rule)
+        start_attacker(net, i, start_at, args.attacker_lottery, args.rule, args.block_size)
 
     sleep(3600)
     sigint_handler(None, None)

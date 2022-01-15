@@ -32,10 +32,11 @@ if __name__ == "__main__":
                 if stripped != "":
                     datapoints.append(float(stripped)/1000.0)
 
-NB = 100
-(dst, bins) = numpy.histogram(datapoints, bins=NB, density=True)
+N = len(datapoints)
+x = numpy.sort(datapoints)
+y = numpy.array(range(N))/float(N)
 
 print("midpoint", "density")
-for i in range(NB):
-    print(bins[i]/2.0 + bins[i+1]/2.0, dst[i])
+for i in range(N):
+    print(x[i], y[i])
 

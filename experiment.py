@@ -94,6 +94,11 @@ parser.add_argument('--block-size',
                     default=100000,
                     type=int)
 
+parser.add_argument('--duration',
+                    help="Duration of the experiment in seconds",
+                    default=1800,
+                    type=int)
+
 # Expt parameters
 args = parser.parse_args()
 
@@ -169,5 +174,5 @@ if __name__ == "__main__":
     for i in range(args.num_attackers):
         start_attacker(net, i, start_at, args.attacker_lottery, args.rule, args.block_size)
 
-    sleep(3600)
+    sleep(args.duration)
     sigint_handler(None, None)

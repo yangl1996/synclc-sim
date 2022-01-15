@@ -33,7 +33,7 @@ traffic_re = re.compile(r"rxbytes=([0-9]+) txbytes=([0-9]+)$")
 if __name__ == "__main__":
     files=glob.glob(args.dir+"/*-traffic.txt")
     for filepath in files:
-        if 'victim_{}-delay.txt'.format(args.node) in filepath:
+        if 'victim_{}-traffic.txt'.format(args.node) in filepath:
             with open(filepath) as f:
                 for line in f:
                     result = traffic_re.search(line)

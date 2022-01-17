@@ -2,7 +2,9 @@ Use demo.sh to start a quick demo without Mininet. Use stop.sh to stop the demo.
 
 To run experiments, you need Mininet. If running Mininet inside a container,
 the host machine must load the openvswitch kernel module by installing
-openvswitch-switch.
+openvswitch-switch. We recommend following the "installing from source" instructions
+to install Mininet. Make sure that the python command goes to python3 (install
+python-is-python3 on Ubuntu).
 
 Use process.py to process results and save into a JSON file, and use data_to_plot.py
 to produce files for LaTeX. The core simulation is in pure Golang.

@@ -1,13 +1,24 @@
-Use demo.sh to start a quick demo without Mininet. Use stop.sh to stop the demo.
+Code for paper: Securing Proof-of-Stake Nakamoto Consensus Under Bandwidth Constraint
 
-To run experiments, you need Mininet. If running Mininet inside a container,
-the host machine must load the openvswitch kernel module by installing
+Authors: Joachim Neu, Srivatsan Sridhar, Lei Yang, David Tse, Mohammad Alizadeh
+
+Building
+========
+
+Run "go build" to build the consensus node. Use demo.sh to start a quick demo without
+Mininet. Use stop.sh to stop the demo.
+
+Running Experiments
+===================
+
+To reproduce the experimental results, you need Mininet. If running Mininet inside a
+container, the host machine must load the openvswitch kernel module by installing
 openvswitch-switch. We recommend following the "installing from source" instructions
 to install Mininet. Make sure that the python command goes to python3 (install
 python-is-python3 on Ubuntu).
 
 Use process.py to process results and save into a JSON file, and use data_to_plot.py
-to produce files for LaTeX. The core simulation is in pure Golang.
+to produce files for LaTeX.
 
 Python deps:
 - python-dateutil
